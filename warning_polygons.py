@@ -11,6 +11,7 @@ import cartopy.io.shapereader as shpreader
 import datetime
 import shapely
 import matplotlib.patches as mpatches
+import pandas as pd
 
 #Open the NWS API in python to get the active alerts
 n = noaa.NOAA()
@@ -22,38 +23,38 @@ alerts = n.active_alerts()
 
 #Definitions for each area we will be using for subregions
 #Northeast
-ne = shapely.geometry.box(-80, 38, -65, 50, ccw=True)
+ne = shapely.geometry.box(-80, 30, -60, 50, ccw=True)
 
 #Rockies
-rs = shapely.geometry.box(-115, 40, -100, 50, ccw=True)
+rs = shapely.geometry.box(-115, 30, -95, 50, ccw=True)
 
 #Southeast
-se = shapely.geometry.box(-90, 25, -73, 38, ccw=True)
+se = shapely.geometry.box(-90, 20, -70, 40, ccw=True)
 
 #Ohio Valley
-ov = shapely.geometry.box(-95, 25, -80, 45, ccw=True)
+ov = shapely.geometry.box(-95, 25, -75, 45, ccw=True)
 
 #Upper MidWest
-um = shapely.geometry.box(-100, 40, -80, 50, ccw=True)
+um = shapely.geometry.box(-100, 30, -80, 50, ccw=True)
 
 #West
-weast = shapely.geometry.box(-125, 30, -115, 43, ccw=True)
+weast = shapely.geometry.box(-125, 23, -105, 43, ccw=True)
 
 #Northwest
-nw = shapely.geometry.box(-125, 43, -100, 50, ccw=True)
+nw = shapely.geometry.box(-125, 30, -100, 50, ccw=True)
 
 #South
-south = shapely.geometry.box(-115, 25, -90, 40, ccw=True)
+south = shapely.geometry.box(-115, 20, -90, 40, ccw=True)
 
 #Bounding boxes per region
-bbox_ne = [-80, -65, 38, 50]
-bbox_rs = [-115, -100, 40, 50]
-bbox_se = [-90, -73, 25, 38]
-bbox_ov = [-95, -80, 25, 45]
-bbox_um = [-100, -80, 40, 50]
-bbox_weast = [-125, -115, 30, 43]
-bbox_nw = [-125, -100, 43, 50]
-bbox_south = [-115, -90, 25, 40]
+bbox_ne = [-80, -60, 30, 50]
+bbox_rs = [-115, -95, 30, 50]
+bbox_se = [-90, -70, 20, 40]
+bbox_ov = [-95, -75, 25, 45]
+bbox_um = [-100, -80, 30, 50]
+bbox_weast = [-125, -105, 23, 43]
+bbox_nw = [-125, -100, 30, 50]
+bbox_south = [-115, -90, 20, 40]
 
 #Function we will need to grab the warning colors
 def warning_color(phensig):
@@ -99,6 +100,14 @@ COUNTIES = cfeature.ShapelyFeature(counties, ccrs.PlateCarree())
 ax.add_feature(cfeature.OCEAN.with_scale('50m'))
 ax.add_feature(cfeature.LAKES.with_scale('50m'))
 
+#get the shapefiles for the zones
+reader = shpreader.Reader('c_02jn20.shp')
+list_records = []
+list_geometries = []
+list_records.append([c.attributes for c in list(reader.records())])
+list_geometries.append([c for c in list(reader.geometries())])
+df = pd.DataFrame.from_dict(list_records[0], orient='columns', dtype=None)
+
 #list to hold tuples consisting of the polygon, the event associated with it, and its color
 data_array = []
 
@@ -112,21 +121,24 @@ for alert in alerts['features']:
         event = alert['properties']['event']
         # Now get the coordinates listed for the alert. Sometimes it is a MultiPolygon object, so
         # we use a loop to grab each object in the 'coordinates' property to be able to plot everything.
-        for zz in alert['geometry']['coordinates']:
+        for zz in alert['properties']['geocode']['SAME']:
             loc = []
             # Sometimes coordinates will return None, if so, skip over it.
-            try:
+            if zz:
                 # Get the coordinates
-                poly_coords = zz
+                poly_coords = zz[1:]
 
+                #Get the index in the dataframe and pull out the geometry
+                ind = df.index[df.FIPS == poly_coords][0]
+                polygon = list_geometries[0][ind]
                 # get the x and y coordinates into two separate lists
-                xcoor, ycoor = map(list, zip(*poly_coords))
+                #xcoor, ycoor = map(list, zip(*poly_coords))
 
                 # Now place them into tuples for each coordinate pair and put the tuples into a list
-                coords = list(zip(xcoor, ycoor))
+                #coords = list(zip(xcoor, ycoor))
 
                 # Create a shapely.Polygon object from the coordinates
-                polygon = Polygon(coords)
+                #polygon = Polygon(coords)
 
                 if(ne.contains(polygon)):
                     loc.append('ne')
@@ -154,9 +166,6 @@ for alert in alerts['features']:
                 shape_feature = ShapelyFeature([polygon], ccrs.PlateCarree(),
                                                facecolor=wcolor, edgecolor=wcolor)
                 ax.add_feature(shape_feature)
-
-            except:
-                pass
     except:
         # Sometimes, the coordinates return None due to NWS not listing them on the API for the alert.
         # In this case, we grab the affected zone(s) and get their coordinates to plot the alert for
@@ -183,12 +192,11 @@ for alert in alerts['features']:
                     # Same as above. If it is a MultiPolygon, we loop through each set of coordinates.
                     # Will still work if only a Polygon
                     for zz in zone_info['geometry']['coordinates']:
-
                         # PC represents the coordinates inside the MultiPolygon coordinates variable (zz)
                         for pc in zz:
                             loc = []
                             # Now try and plot, if coordinates return None, skip them.
-                            try:
+                            if pc:
                                 # Grab the set of coordinates
                                 poly_coords = pc
 
@@ -228,20 +236,16 @@ for alert in alerts['features']:
                                 shape_feature = ShapelyFeature([polygon], ccrs.PlateCarree(),
                                                                facecolor=wcolor, edgecolor=wcolor)
                                 ax.add_feature(shape_feature)
-                            except:
-                                pass
                 except:
                     # Same as above for when the coordinates are in 'geometry''geometries'
                     for zg in zone_info['geometry']['geometries']:
                         try:
                             # Have to grab the coordinates out of the 'geometry''geometries' list
                             for zgg in zg['coordinates']:
-                                try:
-
                                     for pc in zgg:
                                         loc = []
                                         # Now try and plot, if coordinates return None, skip them.
-                                        try:
+                                        if pc:
                                             # Grab the set of coordinates
                                             poly_coords = pc
 
@@ -281,18 +285,10 @@ for alert in alerts['features']:
                                             shape_feature = ShapelyFeature([polygon], ccrs.PlateCarree(),
                                                                            facecolor=wcolor, edgecolor=wcolor)
                                             ax.add_feature(shape_feature)
-                                        except:
-                                            pass
-                                except:
-                                    pass
                         except:
                             pass
         except:
             pass
-
-
-
-
 
 
 #ax.add_feature(cfeature.LAND)
@@ -303,8 +299,8 @@ ax.add_feature(COUNTIES, facecolor='none', edgecolor='black')
 
 plt.savefig('testing.png', bbox_inches='tight')
 
-#Now make the regional maps and add in legends
-import pandas as pd
+# #Now make the regional maps and add in legends
+# import pandas as pd
 from matplotlib.lines import Line2D
 
 df = pd.DataFrame(data_array)
@@ -366,8 +362,8 @@ for group in df.groupby(df[3]):
     plt.close()
 
 
-
-#plt.show()
+#
+# #plt.show()
 
 
 
